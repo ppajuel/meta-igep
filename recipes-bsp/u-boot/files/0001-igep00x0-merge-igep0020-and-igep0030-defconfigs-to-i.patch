@@ -1,0 +1,433 @@
+From 0cb78e029c0200b15bf11da22f19de19c760339f Mon Sep 17 00:00:00 2001
+From: Pau Pajuelo <ppajuel@gmail.com>
+Date: Sun, 30 Jul 2017 19:29:38 +0200
+Subject: [PATCH] igep00x0: merge igep0020 and igep0030 defconfigs to
+ igep00x0_defconfig
+
+Update igep00x0 code with the following features:
+- Add board and revision detection for the boards:
+  - IGEP0020-RF
+  - IGEP0020-RC
+  - IGEP0030-RG
+  - IGEP0030-RE
+- Merge IGEP0020 and IGEP0030 mux tables
+- Add suport to use GPIO_126, GPIO_127 and GPIO_129
+- board_name environment variable displays board and revision information
+
+Signed-off-by: Pau Pajuelo <ppajuel@gmail.com>
+---
+ board/isee/igep00x0/MAINTAINERS  |   3 +-
+ board/isee/igep00x0/igep00x0.c   | 118 +++++++++++++++++++++++++++++++++------
+ board/isee/igep00x0/igep00x0.h   |  13 ++---
+ configs/igep0020_defconfig       |  43 --------------
+ configs/igep0030_defconfig       |  42 --------------
+ configs/igep00x0_defconfig       |  35 ++++++++++++
+ include/configs/omap3_igep00x0.h |  25 +++++----
+ 7 files changed, 159 insertions(+), 120 deletions(-)
+ delete mode 100644 configs/igep0020_defconfig
+ delete mode 100644 configs/igep0030_defconfig
+ create mode 100644 configs/igep00x0_defconfig
+
+diff --git a/board/isee/igep00x0/MAINTAINERS b/board/isee/igep00x0/MAINTAINERS
+index 720ef2a..d75d400 100644
+--- a/board/isee/igep00x0/MAINTAINERS
++++ b/board/isee/igep00x0/MAINTAINERS
+@@ -3,6 +3,5 @@ M:	Enric Balletbo i Serra <eballetbo@gmail.com>
+ S:	Maintained
+ F:	board/isee/igep00x0/
+ F:	include/configs/omap3_igep00x0.h
+-F:	configs/igep0020_defconfig
+-F:	configs/igep0030_defconfig
++F:	configs/igep00x0_defconfig
+ F:	configs/igep0032_defconfig
+diff --git a/board/isee/igep00x0/igep00x0.c b/board/isee/igep00x0/igep00x0.c
+index 843d35e..a423003 100644
+--- a/board/isee/igep00x0/igep00x0.c
++++ b/board/isee/igep00x0/igep00x0.c
+@@ -17,7 +17,6 @@
+ #include <asm/arch/mmc_host_def.h>
+ #include <asm/arch/mux.h>
+ #include <asm/arch/sys_proto.h>
+-#include <asm/mach-types.h>
+ #include <linux/mtd/mtd.h>
+ #include <linux/mtd/nand.h>
+ #include <linux/mtd/nand.h>
+@@ -29,6 +28,43 @@
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
++/*
++ * Routine: get_board_revision
++ * Description: GPIO_28 and GPIO_129 are used to read board and revision from
++ * IGEP00x0 boards. First of all, it is necessary to reset USB transceiver from
++ * IGEP0030 in order to read GPIO_IGEP00X0_BOARD_DETECTION correctly, because
++ * this functionality is shared by USB HOST.
++ * Once USB reset is applied, U-boot configures these pins as input pullup to
++ * detect board and revision:
++ * IGEP0020-RF = 0b00
++ * IGEP0020-RC = 0b01
++ * IGEP0030-RG = 0b10
++ * IGEP0030-RE = 0b11
++ */
++static int get_board_revision(void)
++{
++	int revision;
++
++	gpio_request(IGEP0030_USB_TRANSCEIVER_RESET,
++				 "igep0030_usb_transceiver_reset");
++	gpio_direction_output(IGEP0030_USB_TRANSCEIVER_RESET, 0);
++
++	gpio_request(GPIO_IGEP00X0_BOARD_DETECTION, "igep00x0_board_detection");
++	gpio_direction_input(GPIO_IGEP00X0_BOARD_DETECTION);
++	revision = 2 * gpio_get_value(GPIO_IGEP00X0_BOARD_DETECTION);
++	gpio_free(GPIO_IGEP00X0_BOARD_DETECTION);
++
++	gpio_request(GPIO_IGEP00X0_REVISION_DETECTION,
++				 "igep00x0_revision_detection");
++	gpio_direction_input(GPIO_IGEP00X0_REVISION_DETECTION);
++	revision = revision + gpio_get_value(GPIO_IGEP00X0_REVISION_DETECTION);
++	gpio_free(GPIO_IGEP00X0_REVISION_DETECTION);
++
++	gpio_free(IGEP0030_USB_TRANSCEIVER_RESET);
++
++	return revision;
++}
++
+ static const struct ns16550_platdata igep_serial = {
+ 	.base = OMAP34XX_UART3,
+ 	.reg_shift = 2,
+@@ -69,10 +105,6 @@ int board_init(void)
+ 	/* boot param addr */
+ 	gd->bd->bi_boot_params = (OMAP34XX_SDRC_CS0 + 0x100);
+ 
+-#if defined(CONFIG_LED_STATUS) && defined(CONFIG_LED_STATUS_BOOT_ENABLE)
+-	status_led_set(CONFIG_LED_STATUS_BOOT, CONFIG_LED_STATUS_ON);
+-#endif
+-
+ 	return 0;
+ }
+ 
+@@ -249,30 +281,92 @@ int ft_board_setup(void *blob, bd_t *bd)
+ 
+ void set_fdt(void)
+ {
+-	switch (gd->bd->bi_arch_number) {
+-	case MACH_TYPE_IGEP0020:
++	switch (get_board_revision()) {
++	case 0:
++		setenv("fdtfile", "omap3-igep0020-rev-f.dtb");
++		break;
++	case 1:
+ 		setenv("fdtfile", "omap3-igep0020.dtb");
+ 		break;
+-	case MACH_TYPE_IGEP0030:
++	case 2:
++		setenv("fdtfile", "omap3-igep0030-rev-g.dtb");
++		break;
++	default:
+ 		setenv("fdtfile", "omap3-igep0030.dtb");
+ 		break;
+ 	}
+ }
+ 
++void set_led(void)
++{
++	switch (get_board_revision()) {
++	case 0:
++	case 1:
++		gpio_request(IGEP0020_GPIO_LED, "igep0020_gpio_led");
++		gpio_direction_output(IGEP0020_GPIO_LED, 1);
++		break;
++	default:
++		gpio_request(IGEP0030_GPIO_LED, "igep0030_gpio_led");
++		gpio_direction_output(IGEP0030_GPIO_LED, 1);
++		break;
++	}
++}
++
++void set_boardname(void)
++{
++	switch (get_board_revision()) {
++	case 0:
++		setenv("board_name", "igep0020-rf");
++		break;
++	case 1:
++		setenv("board_name", "igep0020-rc");
++		break;
++	case 2:
++		setenv("board_name", "igep0030-rg");
++		break;
++	default:
++		setenv("board_name", "igep0030-re");
++		break;
++	}
++}
++
+ /*
+  * Routine: misc_init_r
+  * Description: Configure board specific parts
+  */
+ int misc_init_r(void)
+ {
++	t2_t *t2_base = (t2_t *)T2_BASE;
++	u32 pbias_lite;
++
+ 	twl4030_power_init();
+ 
++	/* set VSIM to 1.8V */
++	twl4030_pmrecv_vsel_cfg(TWL4030_PM_RECEIVER_VSIM_DEDICATED,
++				TWL4030_PM_RECEIVER_VSIM_VSEL_18,
++				TWL4030_PM_RECEIVER_VSIM_DEV_GRP,
++				TWL4030_PM_RECEIVER_DEV_GRP_P1);
++
++	/* set up dual-voltage GPIOs to 1.8V */
++	pbias_lite = readl(&t2_base->pbias_lite);
++	pbias_lite &= ~PBIASLITEVMODE1;
++	pbias_lite |= PBIASLITEPWRDNZ1;
++	writel(pbias_lite, &t2_base->pbias_lite);
++	if (get_cpu_family() == CPU_OMAP36XX)
++		writel(readl(OMAP34XX_CTRL_WKUP_CTRL) |
++					 OMAP34XX_CTRL_WKUP_CTRL_GPIO_IO_PWRDNZ,
++					 OMAP34XX_CTRL_WKUP_CTRL);
++
+ 	setup_net_chip();
+ 
+ 	omap_die_id_display();
+ 
+ 	set_fdt();
+ 
++	set_led();
++
++	set_boardname();
++
+ 	return 0;
+ }
+ 
+@@ -302,12 +396,4 @@ void board_mtdparts_default(const char **mtdids, const char **mtdparts)
+ void set_muxconf_regs(void)
+ {
+ 	MUX_DEFAULT();
+-
+-#if (CONFIG_MACH_TYPE == MACH_TYPE_IGEP0020)
+-	MUX_IGEP0020();
+-#endif
+-
+-#if (CONFIG_MACH_TYPE == MACH_TYPE_IGEP0030)
+-	MUX_IGEP0030();
+-#endif
+ }
+diff --git a/board/isee/igep00x0/igep00x0.h b/board/isee/igep00x0/igep00x0.h
+index 5698efa..8fdaaac 100644
+--- a/board/isee/igep00x0/igep00x0.h
++++ b/board/isee/igep00x0/igep00x0.h
+@@ -103,6 +103,8 @@
+ 	MUX_VAL(CP(MMC1_DAT1),      (IEN  | PTU | EN  | M0)) /* MMC1_DAT1 */\
+ 	MUX_VAL(CP(MMC1_DAT2),      (IEN  | PTU | EN  | M0)) /* MMC1_DAT2 */\
+ 	MUX_VAL(CP(MMC1_DAT3),      (IEN  | PTU | EN  | M0)) /* MMC1_DAT3 */\
++	MUX_VAL(CP(UART1_TX),       (IDIS | PTD | DIS | M0)) /* UART1_TX */\
++	MUX_VAL(CP(UART1_RX),       (IEN  | PTD | DIS | M0)) /* UART1_RX */\
+ 	MUX_VAL(CP(UART3_TX_IRTX),  (IDIS | PTD | DIS | M0)) /* UART3_TX */\
+ 	MUX_VAL(CP(UART3_RX_IRRX),  (IEN  | PTD | DIS | M0)) /* UART3_RX */\
+ 	MUX_VAL(CP(I2C1_SCL),       (IEN  | PTU | EN  | M0)) /* I2C1_SCL */\
+@@ -117,13 +119,10 @@
+ 	MUX_VAL(CP(SYS_BOOT4),      (IEN  | PTD | DIS | M4)) /* GPIO_6 */\
+ 	MUX_VAL(CP(SYS_BOOT5),      (IEN  | PTD | DIS | M4)) /* GPIO_7 */\
+ 	MUX_VAL(CP(SYS_BOOT6),      (IEN  | PTD | DIS | M4)) /* GPIO_8 */\
++	MUX_VAL(CP(ETK_D12_ES2),    (IEN  | PTU | EN  | M4)) /* GPIO_28 */\
++	MUX_VAL(CP(GPMC_NCS3),      (IDIS | PTD | DIS | M4)) /* GPIO_54 */\
++	MUX_VAL(CP(GPMC_WAIT2),     (IEN  | PTU | DIS | M4)) /* GPIO_64 */\
++	MUX_VAL(CP(GPIO129),        (IEN  | PTU | EN  | M4)) /* GPIO_129 */\
+ 	MUX_VAL(CP(SDRC_CKE0),      (IDIS | PTU | EN  | M0)) /* SDRC_CKE0 */\
+ 	MUX_VAL(CP(SDRC_CKE1),      (IDIS | PTU | EN  | M0)) /* SDRC_CKE1 */
+ #endif
+-
+-#define MUX_IGEP0020() \
+-	MUX_VAL(CP(GPMC_WAIT2),     (IEN  | PTU | DIS | M4)) /* GPIO_64-ETH_NRST */\
+-
+-#define MUX_IGEP0030() \
+-	MUX_VAL(CP(UART1_TX),       (IDIS | PTD | DIS | M0)) /* UART1_TX */\
+-	MUX_VAL(CP(UART1_RX),       (IEN  | PTD | DIS | M0)) /* UART1_RX */
+diff --git a/configs/igep0020_defconfig b/configs/igep0020_defconfig
+deleted file mode 100644
+index 7f8663e..0000000
+--- a/configs/igep0020_defconfig
++++ /dev/null
+@@ -1,43 +0,0 @@
+-CONFIG_ARM=y
+-CONFIG_ARCH_OMAP2PLUS=y
+-CONFIG_TARGET_OMAP3_IGEP00X0=y
+-CONFIG_DISTRO_DEFAULTS=y
+-CONFIG_OF_BOARD_SETUP=y
+-CONFIG_SYS_EXTRA_OPTIONS="MACH_TYPE=MACH_TYPE_IGEP0020"
+-CONFIG_ENV_IS_NOWHERE=y
+-CONFIG_BOOTDELAY=3
+-CONFIG_SYS_CONSOLE_IS_IN_ENV=y
+-CONFIG_SYS_CONSOLE_INFO_QUIET=y
+-CONFIG_VERSION_VARIABLE=y
+-# CONFIG_DISPLAY_BOARDINFO is not set
+-CONFIG_SPL=y
+-# CONFIG_SPL_EXT_SUPPORT is not set
+-CONFIG_SPL_MTD_SUPPORT=y
+-CONFIG_SPL_ONENAND_SUPPORT=y
+-CONFIG_SPL_OS_BOOT=y
+-# CONFIG_CMD_IMLS is not set
+-CONFIG_CMD_ASKENV=y
+-# CONFIG_CMD_FLASH is not set
+-CONFIG_CMD_MMC=y
+-CONFIG_CMD_SPI=y
+-CONFIG_CMD_I2C=y
+-CONFIG_CMD_GPIO=y
+-# CONFIG_CMD_SETEXPR is not set
+-CONFIG_CMD_CACHE=y
+-CONFIG_CMD_EXT4_WRITE=y
+-CONFIG_CMD_UBI=y
+-# CONFIG_CMD_UBIFS is not set
+-CONFIG_NET_RANDOM_ETHADDR=y
+-CONFIG_LED_STATUS=y
+-CONFIG_LED_STATUS_GPIO=y
+-CONFIG_LED_STATUS0=y
+-CONFIG_LED_STATUS_BIT=27
+-CONFIG_LED_STATUS_STATE=2
+-CONFIG_LED_STATUS_BOOT_ENABLE=y
+-CONFIG_LED_STATUS_BOOT=0
+-CONFIG_MMC_OMAP_HS=y
+-CONFIG_MTD_UBI_FASTMAP=y
+-CONFIG_SYS_NS16550=y
+-CONFIG_FAT_WRITE=y
+-CONFIG_OF_LIBFDT=y
+-CONFIG_FDT_FIXUP_PARTITIONS=y
+diff --git a/configs/igep0030_defconfig b/configs/igep0030_defconfig
+deleted file mode 100644
+index 7719cd6..0000000
+--- a/configs/igep0030_defconfig
++++ /dev/null
+@@ -1,42 +0,0 @@
+-CONFIG_ARM=y
+-CONFIG_ARCH_OMAP2PLUS=y
+-CONFIG_TARGET_OMAP3_IGEP00X0=y
+-CONFIG_DISTRO_DEFAULTS=y
+-CONFIG_OF_BOARD_SETUP=y
+-CONFIG_SYS_EXTRA_OPTIONS="MACH_TYPE=MACH_TYPE_IGEP0030"
+-CONFIG_ENV_IS_NOWHERE=y
+-CONFIG_BOOTDELAY=3
+-CONFIG_SYS_CONSOLE_IS_IN_ENV=y
+-CONFIG_SYS_CONSOLE_INFO_QUIET=y
+-CONFIG_VERSION_VARIABLE=y
+-# CONFIG_DISPLAY_BOARDINFO is not set
+-CONFIG_SPL=y
+-# CONFIG_SPL_EXT_SUPPORT is not set
+-CONFIG_SPL_MTD_SUPPORT=y
+-CONFIG_SPL_ONENAND_SUPPORT=y
+-CONFIG_SPL_OS_BOOT=y
+-# CONFIG_CMD_IMLS is not set
+-CONFIG_CMD_ASKENV=y
+-# CONFIG_CMD_FLASH is not set
+-CONFIG_CMD_MMC=y
+-CONFIG_CMD_SPI=y
+-CONFIG_CMD_I2C=y
+-CONFIG_CMD_GPIO=y
+-# CONFIG_CMD_SETEXPR is not set
+-CONFIG_CMD_CACHE=y
+-CONFIG_CMD_EXT4_WRITE=y
+-CONFIG_CMD_UBI=y
+-# CONFIG_CMD_UBIFS is not set
+-CONFIG_NET_RANDOM_ETHADDR=y
+-CONFIG_LED_STATUS=y
+-CONFIG_LED_STATUS_GPIO=y
+-CONFIG_LED_STATUS0=y
+-CONFIG_LED_STATUS_BIT=16
+-CONFIG_LED_STATUS_STATE=2
+-CONFIG_LED_STATUS_BOOT_ENABLE=y
+-CONFIG_LED_STATUS_BOOT=0
+-CONFIG_MMC_OMAP_HS=y
+-CONFIG_SYS_NS16550=y
+-CONFIG_FAT_WRITE=y
+-CONFIG_OF_LIBFDT=y
+-CONFIG_FDT_FIXUP_PARTITIONS=y
+diff --git a/configs/igep00x0_defconfig b/configs/igep00x0_defconfig
+new file mode 100644
+index 0000000..85d4ac3
+--- /dev/null
++++ b/configs/igep00x0_defconfig
+@@ -0,0 +1,35 @@
++CONFIG_ARM=y
++CONFIG_ARCH_OMAP2PLUS=y
++CONFIG_TARGET_OMAP3_IGEP00X0=y
++CONFIG_DISTRO_DEFAULTS=y
++CONFIG_OF_BOARD_SETUP=y
++CONFIG_ENV_IS_NOWHERE=y
++CONFIG_BOOTDELAY=3
++CONFIG_SYS_CONSOLE_IS_IN_ENV=y
++CONFIG_SYS_CONSOLE_INFO_QUIET=y
++CONFIG_VERSION_VARIABLE=y
++# CONFIG_DISPLAY_BOARDINFO is not set
++CONFIG_SPL=y
++# CONFIG_SPL_EXT_SUPPORT is not set
++CONFIG_SPL_MTD_SUPPORT=y
++CONFIG_SPL_ONENAND_SUPPORT=y
++CONFIG_SPL_OS_BOOT=y
++# CONFIG_CMD_IMLS is not set
++CONFIG_CMD_ASKENV=y
++# CONFIG_CMD_FLASH is not set
++CONFIG_CMD_MMC=y
++CONFIG_CMD_SPI=y
++CONFIG_CMD_I2C=y
++CONFIG_CMD_GPIO=y
++# CONFIG_CMD_SETEXPR is not set
++CONFIG_CMD_CACHE=y
++CONFIG_CMD_EXT4_WRITE=y
++CONFIG_CMD_UBI=y
++# CONFIG_CMD_UBIFS is not set
++CONFIG_NET_RANDOM_ETHADDR=y
++CONFIG_MMC_OMAP_HS=y
++CONFIG_MTD_UBI_FASTMAP=y
++CONFIG_SYS_NS16550=y
++CONFIG_FAT_WRITE=y
++CONFIG_OF_LIBFDT=y
++CONFIG_FDT_FIXUP_PARTITIONS=y
+diff --git a/include/configs/omap3_igep00x0.h b/include/configs/omap3_igep00x0.h
+index 39f1e54..fee95d6 100644
+--- a/include/configs/omap3_igep00x0.h
++++ b/include/configs/omap3_igep00x0.h
+@@ -14,7 +14,6 @@
+ #define CONFIG_NAND
+ 
+ #include <configs/ti_omap3_common.h>
+-#include <asm/mach-types.h>
+ 
+ /*
+  * We are only ever GP parts and will utilize all of the "downloaded image"
+@@ -27,15 +26,21 @@
+ 
+ #define CONFIG_REVISION_TAG		1
+ 
+-/* Status LED available for IGEP0020 and IGEP0030 but not IGEP0032 */
+-#if (CONFIG_MACH_TYPE == MACH_TYPE_IGEP0020) || \
+-		       (CONFIG_MACH_TYPE == MACH_TYPE_IGEP0030)
+-#if (CONFIG_MACH_TYPE == MACH_TYPE_IGEP0020)
+-#define RED_LED_GPIO 27
+-#elif (CONFIG_MACH_TYPE == MACH_TYPE_IGEP0030)
+-#define RED_LED_GPIO 16
+-#endif
+-#endif
++/* GPIO banks */
++#define CONFIG_OMAP3_GPIO_2		/* GPIO32..63   is in GPIO bank 2 */
++#define CONFIG_OMAP3_GPIO_4		/* GPIO96..127  is in GPIO bank 4 */
++
++/* TPS65950 */
++#define PBIASLITEVMODE1			(1 << 8)
++
++/* LED */
++#define IGEP0020_GPIO_LED		27
++#define IGEP0030_GPIO_LED		16
++
++/* Board and revision detection GPIOs */
++#define IGEP0030_USB_TRANSCEIVER_RESET		54
++#define GPIO_IGEP00X0_BOARD_DETECTION		28
++#define GPIO_IGEP00X0_REVISION_DETECTION	129
+ 
+ /* USB */
+ #define CONFIG_USB_MUSB_UDC		1
+-- 
+2.7.4
+
