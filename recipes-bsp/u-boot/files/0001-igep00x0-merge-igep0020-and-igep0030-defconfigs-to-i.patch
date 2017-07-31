@@ -1,6 +1,6 @@
-From 0cb78e029c0200b15bf11da22f19de19c760339f Mon Sep 17 00:00:00 2001
+From 1dc87acb84c97778e66893e97421e67c61ca6992 Mon Sep 17 00:00:00 2001
 From: Pau Pajuelo <ppajuel@gmail.com>
-Date: Sun, 30 Jul 2017 19:29:38 +0200
+Date: Mon, 31 Jul 2017 22:24:13 +0200
 Subject: [PATCH] igep00x0: merge igep0020 and igep0030 defconfigs to
  igep00x0_defconfig
 
@@ -17,13 +17,13 @@ Update igep00x0 code with the following features:
 Signed-off-by: Pau Pajuelo <ppajuel@gmail.com>
 ---
  board/isee/igep00x0/MAINTAINERS  |   3 +-
- board/isee/igep00x0/igep00x0.c   | 118 +++++++++++++++++++++++++++++++++------
- board/isee/igep00x0/igep00x0.h   |  13 ++---
- configs/igep0020_defconfig       |  43 --------------
- configs/igep0030_defconfig       |  42 --------------
- configs/igep00x0_defconfig       |  35 ++++++++++++
- include/configs/omap3_igep00x0.h |  25 +++++----
- 7 files changed, 159 insertions(+), 120 deletions(-)
+ board/isee/igep00x0/igep00x0.c   | 128 ++++++++++++++++++++++++++++++++++-----
+ board/isee/igep00x0/igep00x0.h   |  13 ++--
+ configs/igep0020_defconfig       |  43 -------------
+ configs/igep0030_defconfig       |  42 -------------
+ configs/igep00x0_defconfig       |  35 +++++++++++
+ include/configs/omap3_igep00x0.h |  25 +++++---
+ 7 files changed, 169 insertions(+), 120 deletions(-)
  delete mode 100644 configs/igep0020_defconfig
  delete mode 100644 configs/igep0030_defconfig
  create mode 100644 configs/igep00x0_defconfig
@@ -41,7 +41,7 @@ index 720ef2a..d75d400 100644
 +F:	configs/igep00x0_defconfig
  F:	configs/igep0032_defconfig
 diff --git a/board/isee/igep00x0/igep00x0.c b/board/isee/igep00x0/igep00x0.c
-index 843d35e..a423003 100644
+index 843d35e..705e8ad 100644
 --- a/board/isee/igep00x0/igep00x0.c
 +++ b/board/isee/igep00x0/igep00x0.c
 @@ -17,7 +17,6 @@
@@ -107,7 +107,7 @@ index 843d35e..a423003 100644
  	return 0;
  }
  
-@@ -249,30 +281,92 @@ int ft_board_setup(void *blob, bd_t *bd)
+@@ -249,13 +281,62 @@ int ft_board_setup(void *blob, bd_t *bd)
  
  void set_fdt(void)
  {
@@ -124,12 +124,15 @@ index 843d35e..a423003 100644
 +	case 2:
 +		setenv("fdtfile", "omap3-igep0030-rev-g.dtb");
 +		break;
-+	default:
++	case 3:
  		setenv("fdtfile", "omap3-igep0030.dtb");
  		break;
- 	}
- }
- 
++	default:
++		/* Should not happen... */
++		break;
++	}
++}
++
 +void set_led(void)
 +{
 +	switch (get_board_revision()) {
@@ -138,9 +141,13 @@ index 843d35e..a423003 100644
 +		gpio_request(IGEP0020_GPIO_LED, "igep0020_gpio_led");
 +		gpio_direction_output(IGEP0020_GPIO_LED, 1);
 +		break;
-+	default:
++	case 2:
++	case 3:
 +		gpio_request(IGEP0030_GPIO_LED, "igep0030_gpio_led");
-+		gpio_direction_output(IGEP0030_GPIO_LED, 1);
++		gpio_direction_output(IGEP0030_GPIO_LED, 0);
++		break;
++	default:
++		/* Should not happen... */
 +		break;
 +	}
 +}
@@ -157,15 +164,16 @@ index 843d35e..a423003 100644
 +	case 2:
 +		setenv("board_name", "igep0030-rg");
 +		break;
-+	default:
++	case 3:
 +		setenv("board_name", "igep0030-re");
 +		break;
-+	}
-+}
-+
- /*
-  * Routine: misc_init_r
-  * Description: Configure board specific parts
++	default:
++		/* Should not happen... */
++		break;
+ 	}
+ }
+ 
+@@ -265,14 +346,37 @@ void set_fdt(void)
   */
  int misc_init_r(void)
  {
@@ -203,7 +211,7 @@ index 843d35e..a423003 100644
  	return 0;
  }
  
-@@ -302,12 +396,4 @@ void board_mtdparts_default(const char **mtdids, const char **mtdparts)
+@@ -302,12 +406,4 @@ void board_mtdparts_default(const char **mtdids, const char **mtdparts)
  void set_muxconf_regs(void)
  {
  	MUX_DEFAULT();
@@ -217,7 +225,7 @@ index 843d35e..a423003 100644
 -#endif
  }
 diff --git a/board/isee/igep00x0/igep00x0.h b/board/isee/igep00x0/igep00x0.h
-index 5698efa..8fdaaac 100644
+index 5698efa..1cbe7c9 100644
 --- a/board/isee/igep00x0/igep00x0.h
 +++ b/board/isee/igep00x0/igep00x0.h
 @@ -103,6 +103,8 @@
@@ -233,7 +241,7 @@ index 5698efa..8fdaaac 100644
  	MUX_VAL(CP(SYS_BOOT4),      (IEN  | PTD | DIS | M4)) /* GPIO_6 */\
  	MUX_VAL(CP(SYS_BOOT5),      (IEN  | PTD | DIS | M4)) /* GPIO_7 */\
  	MUX_VAL(CP(SYS_BOOT6),      (IEN  | PTD | DIS | M4)) /* GPIO_8 */\
-+	MUX_VAL(CP(ETK_D12_ES2),    (IEN  | PTU | EN  | M4)) /* GPIO_28 */\
++	MUX_VAL(CP(ETK_D14_ES2),    (IEN  | PTU | EN  | M4)) /* GPIO_28 */\
 +	MUX_VAL(CP(GPMC_NCS3),      (IDIS | PTD | DIS | M4)) /* GPIO_54 */\
 +	MUX_VAL(CP(GPMC_WAIT2),     (IEN  | PTU | DIS | M4)) /* GPIO_64 */\
 +	MUX_VAL(CP(GPIO129),        (IEN  | PTU | EN  | M4)) /* GPIO_129 */\
